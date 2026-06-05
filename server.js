@@ -123,6 +123,17 @@ function normalizeText(text) {
   return String(text || "").trim().toLowerCase();
 }
 
+function isOldComment(value) {
+  const timestamp = value.created_time || value.timestamp;
+
+  if (!timestamp) return false;
+
+  const commentTime = new Date(timestamp).getTime();
+  const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+
+  return commentTime < twentyFourHoursAgo;
+}
+
 function matchesKeyword(text, keyword) {
   const clean = normalizeText(text);
   const cleanKeyword = normalizeText(keyword);
@@ -161,8 +172,17 @@ function extractCommentEvents(body) {
     for (const change of entry.changes || []) {
       if (change.field !== "comments") continue;
 
-      const value = change.value || {};
-      const commentId = value.id || value.comment_id;
+const value = change.value || {};
+
+if (isOldComment(value)) {
+  log("Old comment ignored:", {
+    commentId: value.id || value.comment_id,
+    timestamp: value.created_time || value.timestamp
+  });
+  continue;
+}
+
+const commentId = value.id || value.comment_id;
       const text = value.text || value.message || "";
       const mediaId = value.media?.id || value.media_id || null;
 
