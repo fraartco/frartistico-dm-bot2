@@ -19,9 +19,11 @@ const CAMPAIGNS = {
     keyword: "glowy",
     publicReply: "Link Sent! 📩",
     dmText: `Glowing Outline
+    
 https://youtu.be/jmAcISprIec
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -29,9 +31,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "trail",
     publicReply: "Link Sent! 📩",
     dmText: `Energy Trail Effect
+    
 https://youtu.be/WTA53SzZmsE
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -39,9 +43,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "sky",
     publicReply: "Link Sent! 📩",
     dmText: `Sky Original Lens Distortion
+    
 https://youtu.be/WpTfDTfgYh0
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -49,9 +55,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "frost",
     publicReply: "Link Sent! 📩",
     dmText: `Liquid Frosted GLASS WWDC25
+    
 https://youtu.be/KMPLrdxkCDc
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -59,9 +67,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "earth",
     publicReply: "Link Sent! 📩",
     dmText: `Earth Tutorial
+    
 https://youtu.be/r7EFPS1qWz8?si=--FVDjq00pb3_ukd
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -69,9 +79,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "wave",
     publicReply: "Link Sent! 📩",
     dmText: `Wave Liquid Gradient
+    
 https://youtu.be/6o02NYENEh0
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   },
 
@@ -79,9 +91,11 @@ Your support helps the channel grow – thank you! 🤩`
     keyword: "saas",
     publicReply: "Link Sent! 📩",
     dmText: `SaaS UI Button Animation
+    
 https://youtu.be/3nbBEH5H-1E
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thanks mate! 🤩`
   },
 
@@ -89,14 +103,17 @@ Your support helps the channel grow – thanks mate! 🤩`
     keyword: "carousel",
     publicReply: "Link Sent! 📩",
     dmText: `3D Carousel System
+    
 https://youtu.be/dS_g6cJW3As
 
 Subscribe to the channel, and don’t forget to like and comment!
+
 Your support helps the channel grow – thank you! 🤩`
   }
 };
 
 const processedComments = new Set();
+const processedUserCampaigns = new Set();
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args);
@@ -231,19 +248,32 @@ app.post("/webhook", async (req, res) => {
       continue;
     }
 
-    if (!matchesKeyword(text, campaign.keyword)) {
-      log("Ignored comment:", {
-        commentId,
-        mediaId,
-        keyword: campaign.keyword,
-        text
-      });
-      continue;
-    }
+if (!matchesKeyword(text, campaign.keyword)) {
+  log("Ignored comment:", {
+    commentId,
+    mediaId,
+    keyword: campaign.keyword,
+    text
+  });
+  continue;
+}
 
-    processedComments.add(commentId);
+const userId = event.raw.from?.id || event.raw.username || "unknown";
+const userCampaignKey = `${userId}_${mediaId}_${campaign.keyword}`;
 
-    try {
+if (processedUserCampaigns.has(userCampaignKey)) {
+  log("User already received this campaign:", {
+    userId,
+    mediaId,
+    keyword: campaign.keyword
+  });
+  continue;
+}
+
+processedUserCampaigns.add(userCampaignKey);
+processedComments.add(commentId);
+
+try {
       log("Keyword matched:", {
         commentId,
         mediaId,
