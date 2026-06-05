@@ -8,10 +8,93 @@ const PORT = process.env.PORT || 3000;
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
-const KEYWORD = (process.env.KEYWORD || "").trim().toLowerCase();
-const PUBLIC_REPLY = process.env.PUBLIC_REPLY || "Ti ho inviato il link in DM 📩";
-const DM_TEXT = process.env.DM_TEXT || "Ciao! Ecco il link che mi hai richiesto:";
 const GRAPH_VERSION = process.env.GRAPH_VERSION || "v23.0";
+
+const GLOBAL_KEYWORD = (process.env.KEYWORD || "").trim().toLowerCase();
+const GLOBAL_PUBLIC_REPLY = process.env.PUBLIC_REPLY || "Link Sent! 📩";
+const GLOBAL_DM_TEXT = process.env.DM_TEXT || "Here we go:";
+
+const CAMPAIGNS = {
+  "17890183584544713": {
+    keyword: "glowy",
+    publicReply: "Link Sent! 📩",
+    dmText: `Glowing Outline
+https://youtu.be/jmAcISprIec
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "17900779947445796": {
+    keyword: "trail",
+    publicReply: "Link Sent! 📩",
+    dmText: `Energy Trail Effect
+https://youtu.be/WTA53SzZmsE
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "18122010127643817": {
+    keyword: "sky",
+    publicReply: "Link Sent! 📩",
+    dmText: `Sky Original Lens Distortion
+https://youtu.be/WpTfDTfgYh0
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "17947925259172437": {
+    keyword: "frost",
+    publicReply: "Link Sent! 📩",
+    dmText: `Liquid Frosted GLASS WWDC25
+https://youtu.be/KMPLrdxkCDc
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "18111860119873169": {
+    keyword: "earth",
+    publicReply: "Link Sent! 📩",
+    dmText: `Earth Tutorial
+https://youtu.be/r7EFPS1qWz8?si=--FVDjq00pb3_ukd
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "17936354319252682": {
+    keyword: "wave",
+    publicReply: "Link Sent! 📩",
+    dmText: `Wave Liquid Gradient
+https://youtu.be/6o02NYENEh0
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  },
+
+  "17909832381405025": {
+    keyword: "saas",
+    publicReply: "Link Sent! 📩",
+    dmText: `SaaS UI Button Animation
+https://youtu.be/3nbBEH5H-1E
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thanks mate! 🤩`
+  },
+
+  "18119126242642640": {
+    keyword: "carousel",
+    publicReply: "Link Sent! 📩",
+    dmText: `3D Carousel System
+https://youtu.be/dS_g6cJW3As
+
+Subscribe to the channel, and don’t forget to like and comment!
+Your support helps the channel grow – thank you! 🤩`
+  }
+};
 
 const processedComments = new Set();
 
@@ -23,13 +106,11 @@ function normalizeText(text) {
   return String(text || "").trim().toLowerCase();
 }
 
-function matchesKeyword(text) {
+function matchesKeyword(text, keyword) {
   const clean = normalizeText(text);
-  if (!KEYWORD) return false;
-
-  // Match semplice: accetta keyword da sola o dentro una frase.
-  // Esempio: "glowy", "GLowy", "link glowy please".
-  return clean.includes(KEYWORD);
+  const cleanKeyword = normalizeText(keyword);
+  if (!cleanKeyword) return false;
+  return clean.includes(cleanKeyword);
 }
 
 async function graphPost(endpoint, data) {
@@ -41,17 +122,17 @@ async function graphPost(endpoint, data) {
   return response.data;
 }
 
-async function replyToComment(commentId) {
-  return graphPost(`${commentId}/replies`, { message: PUBLIC_REPLY });
+async function replyToComment(commentId, message) {
+  return graphPost(`${commentId}/replies`, { message });
 }
 
-async function sendPrivateReply(commentId) {
-  return graphPost(`me/messages`, {
+async function sendPrivateReply(commentId, message) {
+  return graphPost("me/messages", {
     recipient: {
       comment_id: commentId
     },
     message: {
-      text: DM_TEXT
+      text: message
     }
   });
 }
@@ -66,11 +147,13 @@ function extractCommentEvents(body) {
       const value = change.value || {};
       const commentId = value.id || value.comment_id;
       const text = value.text || value.message || "";
+      const mediaId = value.media?.id || value.media_id || null;
 
       if (commentId) {
         events.push({
           commentId,
           text,
+          mediaId,
           raw: value
         });
       }
@@ -80,12 +163,30 @@ function extractCommentEvents(body) {
   return events;
 }
 
-// Health check
+function getCampaignForEvent(event) {
+  if (event.mediaId && CAMPAIGNS[event.mediaId]) {
+    return {
+      mediaId: event.mediaId,
+      ...CAMPAIGNS[event.mediaId]
+    };
+  }
+
+  if (GLOBAL_KEYWORD) {
+    return {
+      mediaId: event.mediaId || "global",
+      keyword: GLOBAL_KEYWORD,
+      publicReply: GLOBAL_PUBLIC_REPLY,
+      dmText: GLOBAL_DM_TEXT
+    };
+  }
+
+  return null;
+}
+
 app.get("/", (req, res) => {
   res.status(200).send("Frartistico DM Bot is running.");
 });
 
-// Meta webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -99,9 +200,7 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// Meta webhook receiver
 app.post("/webhook", async (req, res) => {
-  // Rispondiamo subito a Meta per evitare timeout.
   res.sendStatus(200);
 
   log("WEBHOOK BODY:", JSON.stringify(req.body, null, 2));
@@ -114,27 +213,48 @@ app.post("/webhook", async (req, res) => {
   const events = extractCommentEvents(req.body);
 
   for (const event of events) {
-    const { commentId, text } = event;
+    const { commentId, text, mediaId } = event;
 
     if (processedComments.has(commentId)) {
       log("Already processed:", commentId);
       continue;
     }
 
-    if (!matchesKeyword(text)) {
-      log("Ignored comment:", commentId, `"${text}"`);
+    const campaign = getCampaignForEvent(event);
+
+    if (!campaign) {
+      log("No campaign configured:", {
+        commentId,
+        mediaId,
+        text
+      });
+      continue;
+    }
+
+    if (!matchesKeyword(text, campaign.keyword)) {
+      log("Ignored comment:", {
+        commentId,
+        mediaId,
+        keyword: campaign.keyword,
+        text
+      });
       continue;
     }
 
     processedComments.add(commentId);
 
     try {
-      log("Keyword matched:", commentId, `"${text}"`);
+      log("Keyword matched:", {
+        commentId,
+        mediaId,
+        keyword: campaign.keyword,
+        text
+      });
 
-      await replyToComment(commentId);
+      await replyToComment(commentId, campaign.publicReply);
       log("Public reply sent:", commentId);
 
-      await sendPrivateReply(commentId);
+      await sendPrivateReply(commentId, campaign.dmText);
       log("Private DM sent:", commentId);
     } catch (error) {
       log("Error processing comment:", commentId);
@@ -147,15 +267,16 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Manual test endpoint: utile per verificare che token e commentId funzionino.
-// POST /test-private-reply con JSON: { "commentId": "ID_COMMENTO_INSTAGRAM" }
 app.post("/test-private-reply", async (req, res) => {
   try {
-    const { commentId } = req.body || {};
+    const { commentId, message } = req.body || {};
     if (!commentId) return res.status(400).json({ error: "Missing commentId" });
 
-    const publicResult = await replyToComment(commentId);
-    const dmResult = await sendPrivateReply(commentId);
+    const publicResult = await replyToComment(commentId, GLOBAL_PUBLIC_REPLY);
+    const dmResult = await sendPrivateReply(
+      commentId,
+      message || GLOBAL_DM_TEXT
+    );
 
     res.json({ ok: true, publicResult, dmResult });
   } catch (error) {
@@ -168,5 +289,6 @@ app.post("/test-private-reply", async (req, res) => {
 
 app.listen(PORT, () => {
   log(`Bot running on port ${PORT}`);
-  log(`Keyword: ${KEYWORD || "(not set)"}`);
+  log(`Global keyword: ${GLOBAL_KEYWORD || "(not set)"}`);
+  log(`Campaigns loaded: ${Object.keys(CAMPAIGNS).length}`);
 });
