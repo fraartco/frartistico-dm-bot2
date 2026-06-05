@@ -30,6 +30,7 @@ const IG_USER_ID = process.env.IG_USER_ID || "17841404016367067";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const CAMPAIGNS_FILE = path.join(DATA_DIR, "campaigns.json");
+const PROCESSED_FILE = path.join(DATA_DIR, "processed.json");
 
 const DEFAULT_PUBLIC_REPLY = "Link Sent! 📩";
 
@@ -166,6 +167,10 @@ function ensureDataFile() {
       "utf8"
     );
   }
+
+  if (!fs.existsSync(PROCESSED_FILE)) {
+    fs.writeFileSync(PROCESSED_FILE, JSON.stringify({}, null, 2), "utf8");
+  }
 }
 
 function loadCampaigns() {
@@ -183,6 +188,51 @@ function loadCampaigns() {
 function saveCampaigns(campaigns) {
   ensureDataFile();
   fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf8");
+}
+
+function loadProcessed() {
+  ensureDataFile();
+
+  try {
+    const raw = fs.readFileSync(PROCESSED_FILE, "utf8");
+    return JSON.parse(raw || "{}");
+  } catch (error) {
+    log("Error loading processed:", error.message);
+    return {};
+  }
+}
+
+function saveProcessed(processed) {
+  ensureDataFile();
+  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(processed, null, 2), "utf8");
+}
+
+function getUserCampaignKey(event, campaign) {
+  const userId =
+    event.raw.from?.id ||
+    event.raw.from?.username ||
+    event.raw.username ||
+    "unknown";
+
+  const key = `${userId}_${event.mediaId}_${campaign.keyword}`;
+
+  return { userId, key };
+}
+
+function isUserCampaignProcessed(key) {
+  const processed = loadProcessed();
+  return Boolean(processed[key]);
+}
+
+function markUserCampaignProcessed(key, data) {
+  const processed = loadProcessed();
+
+  processed[key] = {
+    ...data,
+    processedAt: new Date().toISOString()
+  };
+
+  saveProcessed(processed);
 }
 
 function normalizeText(text) {
@@ -367,19 +417,25 @@ app.post("/webhook", async (req, res) => {
       continue;
     }
 
-    const userId = event.raw.from?.id || event.raw.username || "unknown";
-    const userCampaignKey = `${userId}_${mediaId}_${campaign.keyword}`;
+    const { userId, key: userCampaignKey } = getUserCampaignKey(
+      event,
+      campaign
+    );
 
-    if (processedUserCampaigns.has(userCampaignKey)) {
+    if (
+      processedUserCampaigns.has(userCampaignKey) ||
+      isUserCampaignProcessed(userCampaignKey)
+    ) {
       log("User already received this campaign:", {
         userId,
         mediaId,
         keyword: campaign.keyword
       });
+
+      processedComments.add(commentId);
       continue;
     }
 
-    processedUserCampaigns.add(userCampaignKey);
     processedComments.add(commentId);
 
     try {
@@ -395,6 +451,16 @@ app.post("/webhook", async (req, res) => {
 
       await sendPrivateReply(commentId, campaign.dmText);
       log("Private DM sent:", commentId);
+
+      processedUserCampaigns.add(userCampaignKey);
+
+      markUserCampaignProcessed(userCampaignKey, {
+        userId,
+        mediaId,
+        keyword: campaign.keyword,
+        commentId,
+        text
+      });
     } catch (error) {
       log("Error processing comment:", commentId);
       if (error.response) {
@@ -492,6 +558,23 @@ app.get("/api/media", requireAdmin, async (req, res) => {
   }
 });
 
+app.get("/api/processed", requireAdmin, (req, res) => {
+  res.json({
+    ok: true,
+    processed: loadProcessed()
+  });
+});
+
+app.delete("/api/processed", requireAdmin, (req, res) => {
+  saveProcessed({});
+  processedUserCampaigns.clear();
+
+  res.json({
+    ok: true,
+    processed: {}
+  });
+});
+
 app.post("/test-private-reply", async (req, res) => {
   try {
     const { commentId, message } = req.body || {};
@@ -512,7 +595,11 @@ app.post("/test-private-reply", async (req, res) => {
 app.listen(PORT, () => {
   ensureDataFile();
   const campaigns = loadCampaigns();
+  const processed = loadProcessed();
+
   log(`Bot running on port ${PORT}`);
   log(`Campaigns loaded: ${Object.keys(campaigns).length}`);
+  log(`Processed users loaded: ${Object.keys(processed).length}`);
   log(`Campaigns file: ${CAMPAIGNS_FILE}`);
+  log(`Processed file: ${PROCESSED_FILE}`);
 });
