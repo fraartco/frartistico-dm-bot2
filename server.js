@@ -98,6 +98,8 @@ app.post("/webhook", async (req, res) => {
   // Rispondiamo subito a Meta per evitare timeout.
   res.sendStatus(200);
 
+  log("WEBHOOK BODY:", JSON.stringify(req.body, null, 2));
+
   if (!ACCESS_TOKEN) {
     log("Missing ACCESS_TOKEN env variable");
     return;
