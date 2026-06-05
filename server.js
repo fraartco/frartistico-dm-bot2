@@ -46,8 +46,14 @@ async function replyToComment(commentId) {
 }
 
 async function sendPrivateReply(commentId) {
-  // Instagram Private Reply: manda 1 DM privato collegato al commento.
-  return graphPost(`${commentId}/private_replies`, { message: DM_TEXT });
+  return graphPost(`me/messages`, {
+    recipient: {
+      comment_id: commentId
+    },
+    message: {
+      text: DM_TEXT
+    }
+  });
 }
 
 function extractCommentEvents(body) {
