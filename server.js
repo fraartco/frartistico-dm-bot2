@@ -1,23 +1,44 @@
 const express = require("express");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
-app.use(express.json({ limit: "2mb" }));
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+app.use(express.json({ limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const GRAPH_VERSION = process.env.GRAPH_VERSION || "v23.0";
 
-const GLOBAL_KEYWORD = (process.env.KEYWORD || "").trim().toLowerCase();
-const GLOBAL_PUBLIC_REPLY = process.env.PUBLIC_REPLY || "Link Sent! 📩";
-const GLOBAL_DM_TEXT = process.env.DM_TEXT || "Here we go:";
+const IG_USER_ID = process.env.IG_USER_ID || "17841404016367067";
 
-const CAMPAIGNS = {
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const CAMPAIGNS_FILE = path.join(DATA_DIR, "campaigns.json");
+
+const DEFAULT_PUBLIC_REPLY = "Link Sent! 📩";
+
+const DEFAULT_CAMPAIGNS = {
   "17890183584544713": {
+    title: "Glowing Outline",
     keyword: "glowy",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/jmAcISprIec",
     dmText: `Glowing Outline
     
 https://youtu.be/jmAcISprIec
@@ -28,8 +49,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "17900779947445796": {
+    title: "Energy Trail Effect",
     keyword: "trail",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/WTA53SzZmsE",
     dmText: `Energy Trail Effect
     
 https://youtu.be/WTA53SzZmsE
@@ -40,8 +63,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "18122010127643817": {
+    title: "Sky Original Lens Distortion",
     keyword: "sky",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/WpTfDTfgYh0",
     dmText: `Sky Original Lens Distortion
     
 https://youtu.be/WpTfDTfgYh0
@@ -52,8 +77,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "17947925259172437": {
+    title: "Liquid Frosted GLASS WWDC25",
     keyword: "frost",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/KMPLrdxkCDc",
     dmText: `Liquid Frosted GLASS WWDC25
     
 https://youtu.be/KMPLrdxkCDc
@@ -64,8 +91,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "18111860119873169": {
+    title: "Earth Tutorial",
     keyword: "earth",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/r7EFPS1qWz8?si=--FVDjq00pb3_ukd",
     dmText: `Earth Tutorial
     
 https://youtu.be/r7EFPS1qWz8?si=--FVDjq00pb3_ukd
@@ -76,8 +105,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "17936354319252682": {
+    title: "Wave Liquid Gradient",
     keyword: "wave",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/6o02NYENEh0",
     dmText: `Wave Liquid Gradient
     
 https://youtu.be/6o02NYENEh0
@@ -88,8 +119,10 @@ Your support helps the channel grow – thank you! 🤩`
   },
 
   "17909832381405025": {
+    title: "SaaS UI Button Animation",
     keyword: "saas",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/3nbBEH5H-1E",
     dmText: `SaaS UI Button Animation
     
 https://youtu.be/3nbBEH5H-1E
@@ -100,8 +133,10 @@ Your support helps the channel grow – thanks mate! 🤩`
   },
 
   "18119126242642640": {
+    title: "3D Carousel System",
     keyword: "carousel",
     publicReply: "Link Sent! 📩",
+    youtubeUrl: "https://youtu.be/dS_g6cJW3As",
     dmText: `3D Carousel System
     
 https://youtu.be/dS_g6cJW3As
@@ -119,17 +154,47 @@ function log(...args) {
   console.log(new Date().toISOString(), ...args);
 }
 
+function ensureDataFile() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+
+  if (!fs.existsSync(CAMPAIGNS_FILE)) {
+    fs.writeFileSync(
+      CAMPAIGNS_FILE,
+      JSON.stringify(DEFAULT_CAMPAIGNS, null, 2),
+      "utf8"
+    );
+  }
+}
+
+function loadCampaigns() {
+  ensureDataFile();
+
+  try {
+    const raw = fs.readFileSync(CAMPAIGNS_FILE, "utf8");
+    return JSON.parse(raw || "{}");
+  } catch (error) {
+    log("Error loading campaigns:", error.message);
+    return {};
+  }
+}
+
+function saveCampaigns(campaigns) {
+  ensureDataFile();
+  fs.writeFileSync(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf8");
+}
+
 function normalizeText(text) {
   return String(text || "").trim().toLowerCase();
 }
 
 function isOldComment(value) {
   const timestamp = value.created_time || value.timestamp;
-
   if (!timestamp) return false;
 
   const commentTime = new Date(timestamp).getTime();
-  const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
 
   return commentTime < twentyFourHoursAgo;
 }
@@ -139,6 +204,41 @@ function matchesKeyword(text, keyword) {
   const cleanKeyword = normalizeText(keyword);
   if (!cleanKeyword) return false;
   return clean.includes(cleanKeyword);
+}
+
+function requireAdmin(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const sentPassword = authHeader.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : "";
+
+  if (!ADMIN_PASSWORD) {
+    return res.status(500).json({
+      ok: false,
+      error: "ADMIN_PASSWORD is not configured on Railway."
+    });
+  }
+
+  if (sentPassword !== ADMIN_PASSWORD) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized"
+    });
+  }
+
+  next();
+}
+
+async function graphGet(endpoint, params = {}) {
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${endpoint}`;
+  const response = await axios.get(url, {
+    params: {
+      ...params,
+      access_token: ACCESS_TOKEN
+    },
+    timeout: 15000
+  });
+  return response.data;
 }
 
 async function graphPost(endpoint, data) {
@@ -172,17 +272,17 @@ function extractCommentEvents(body) {
     for (const change of entry.changes || []) {
       if (change.field !== "comments") continue;
 
-const value = change.value || {};
+      const value = change.value || {};
 
-if (isOldComment(value)) {
-  log("Old comment ignored:", {
-    commentId: value.id || value.comment_id,
-    timestamp: value.created_time || value.timestamp
-  });
-  continue;
-}
+      if (isOldComment(value)) {
+        log("Old comment ignored:", {
+          commentId: value.id || value.comment_id,
+          timestamp: value.created_time || value.timestamp
+        });
+        continue;
+      }
 
-const commentId = value.id || value.comment_id;
+      const commentId = value.id || value.comment_id;
       const text = value.text || value.message || "";
       const mediaId = value.media?.id || value.media_id || null;
 
@@ -201,19 +301,12 @@ const commentId = value.id || value.comment_id;
 }
 
 function getCampaignForEvent(event) {
-  if (event.mediaId && CAMPAIGNS[event.mediaId]) {
+  const campaigns = loadCampaigns();
+
+  if (event.mediaId && campaigns[event.mediaId]) {
     return {
       mediaId: event.mediaId,
-      ...CAMPAIGNS[event.mediaId]
-    };
-  }
-
-  if (GLOBAL_KEYWORD) {
-    return {
-      mediaId: event.mediaId || "global",
-      keyword: GLOBAL_KEYWORD,
-      publicReply: GLOBAL_PUBLIC_REPLY,
-      dmText: GLOBAL_DM_TEXT
+      ...campaigns[event.mediaId]
     };
   }
 
@@ -260,40 +353,36 @@ app.post("/webhook", async (req, res) => {
     const campaign = getCampaignForEvent(event);
 
     if (!campaign) {
-      log("No campaign configured:", {
+      log("No campaign configured:", { commentId, mediaId, text });
+      continue;
+    }
+
+    if (!matchesKeyword(text, campaign.keyword)) {
+      log("Ignored comment:", {
         commentId,
         mediaId,
+        keyword: campaign.keyword,
         text
       });
       continue;
     }
 
-if (!matchesKeyword(text, campaign.keyword)) {
-  log("Ignored comment:", {
-    commentId,
-    mediaId,
-    keyword: campaign.keyword,
-    text
-  });
-  continue;
-}
+    const userId = event.raw.from?.id || event.raw.username || "unknown";
+    const userCampaignKey = `${userId}_${mediaId}_${campaign.keyword}`;
 
-const userId = event.raw.from?.id || event.raw.username || "unknown";
-const userCampaignKey = `${userId}_${mediaId}_${campaign.keyword}`;
+    if (processedUserCampaigns.has(userCampaignKey)) {
+      log("User already received this campaign:", {
+        userId,
+        mediaId,
+        keyword: campaign.keyword
+      });
+      continue;
+    }
 
-if (processedUserCampaigns.has(userCampaignKey)) {
-  log("User already received this campaign:", {
-    userId,
-    mediaId,
-    keyword: campaign.keyword
-  });
-  continue;
-}
+    processedUserCampaigns.add(userCampaignKey);
+    processedComments.add(commentId);
 
-processedUserCampaigns.add(userCampaignKey);
-processedComments.add(commentId);
-
-try {
+    try {
       log("Keyword matched:", {
         commentId,
         mediaId,
@@ -301,7 +390,7 @@ try {
         text
       });
 
-      await replyToComment(commentId, campaign.publicReply);
+      await replyToComment(commentId, campaign.publicReply || DEFAULT_PUBLIC_REPLY);
       log("Public reply sent:", commentId);
 
       await sendPrivateReply(commentId, campaign.dmText);
@@ -317,16 +406,99 @@ try {
   }
 });
 
+app.get("/api/campaigns", requireAdmin, (req, res) => {
+  res.json({
+    ok: true,
+    campaigns: loadCampaigns()
+  });
+});
+
+app.post("/api/campaigns", requireAdmin, (req, res) => {
+  const {
+    mediaId,
+    keyword,
+    publicReply,
+    dmText,
+    title,
+    youtubeUrl
+  } = req.body || {};
+
+  if (!mediaId || !keyword || !dmText) {
+    return res.status(400).json({
+      ok: false,
+      error: "mediaId, keyword and dmText are required."
+    });
+  }
+
+  const campaigns = loadCampaigns();
+
+  campaigns[String(mediaId).trim()] = {
+    title: String(title || "").trim(),
+    keyword: String(keyword).trim().toLowerCase(),
+    publicReply: String(publicReply || DEFAULT_PUBLIC_REPLY),
+    youtubeUrl: String(youtubeUrl || "").trim(),
+    dmText: String(dmText)
+  };
+
+  saveCampaigns(campaigns);
+
+  res.json({
+    ok: true,
+    campaigns
+  });
+});
+
+app.delete("/api/campaigns/:mediaId", requireAdmin, (req, res) => {
+  const campaigns = loadCampaigns();
+  const mediaId = String(req.params.mediaId || "").trim();
+
+  if (!campaigns[mediaId]) {
+    return res.status(404).json({
+      ok: false,
+      error: "Campaign not found."
+    });
+  }
+
+  delete campaigns[mediaId];
+  saveCampaigns(campaigns);
+
+  res.json({
+    ok: true,
+    campaigns
+  });
+});
+
+app.get("/api/media", requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || 25), 50);
+    const after = req.query.after || undefined;
+
+    const data = await graphGet(`${IG_USER_ID}/media`, {
+      fields: "id,caption,permalink,timestamp,media_type,media_product_type",
+      limit,
+      after
+    });
+
+    res.json({
+      ok: true,
+      data: data.data || [],
+      paging: data.paging || null
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.response?.data || error.message
+    });
+  }
+});
+
 app.post("/test-private-reply", async (req, res) => {
   try {
     const { commentId, message } = req.body || {};
     if (!commentId) return res.status(400).json({ error: "Missing commentId" });
 
-    const publicResult = await replyToComment(commentId, GLOBAL_PUBLIC_REPLY);
-    const dmResult = await sendPrivateReply(
-      commentId,
-      message || GLOBAL_DM_TEXT
-    );
+    const publicResult = await replyToComment(commentId, DEFAULT_PUBLIC_REPLY);
+    const dmResult = await sendPrivateReply(commentId, message || "Here we go:");
 
     res.json({ ok: true, publicResult, dmResult });
   } catch (error) {
@@ -338,7 +510,9 @@ app.post("/test-private-reply", async (req, res) => {
 });
 
 app.listen(PORT, () => {
+  ensureDataFile();
+  const campaigns = loadCampaigns();
   log(`Bot running on port ${PORT}`);
-  log(`Global keyword: ${GLOBAL_KEYWORD || "(not set)"}`);
-  log(`Campaigns loaded: ${Object.keys(CAMPAIGNS).length}`);
+  log(`Campaigns loaded: ${Object.keys(campaigns).length}`);
+  log(`Campaigns file: ${CAMPAIGNS_FILE}`);
 });
