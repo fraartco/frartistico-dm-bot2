@@ -256,6 +256,22 @@ function matchesKeyword(text, keyword) {
   return clean.includes(cleanKeyword);
 }
 
+function getRandomPublicReply(campaign) {
+  const replies = [];
+
+  if (campaign.publicReply1) replies.push(String(campaign.publicReply1).trim());
+  if (campaign.publicReply2) replies.push(String(campaign.publicReply2).trim());
+  if (campaign.publicReply3) replies.push(String(campaign.publicReply3).trim());
+
+  const cleanReplies = replies.filter(Boolean);
+
+  if (!cleanReplies.length) {
+    cleanReplies.push(campaign.publicReply || DEFAULT_PUBLIC_REPLY);
+  }
+
+  return cleanReplies[Math.floor(Math.random() * cleanReplies.length)];
+}
+
 function requireAdmin(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const sentPassword = authHeader.startsWith("Bearer ")
@@ -446,8 +462,13 @@ app.post("/webhook", async (req, res) => {
         text
       });
 
-      await replyToComment(commentId, campaign.publicReply || DEFAULT_PUBLIC_REPLY);
-      log("Public reply sent:", commentId);
+      const randomPublicReply = getRandomPublicReply(campaign);
+
+      await replyToComment(commentId, randomPublicReply);
+      log("Public reply sent:", {
+        commentId,
+        reply: randomPublicReply
+      });
 
       await sendPrivateReply(commentId, campaign.dmText);
       log("Private DM sent:", commentId);
@@ -459,7 +480,8 @@ app.post("/webhook", async (req, res) => {
         mediaId,
         keyword: campaign.keyword,
         commentId,
-        text
+        text,
+        publicReply: randomPublicReply
       });
     } catch (error) {
       log("Error processing comment:", commentId);
@@ -484,9 +506,15 @@ app.post("/api/campaigns", requireAdmin, (req, res) => {
     mediaId,
     keyword,
     publicReply,
+    publicReply1,
+    publicReply2,
+    publicReply3,
     dmText,
     title,
-    youtubeUrl
+    youtubeUrl,
+    thumbnailUrl,
+    mediaUrl,
+    permalink
   } = req.body || {};
 
   if (!mediaId || !keyword || !dmText) {
@@ -501,9 +529,18 @@ app.post("/api/campaigns", requireAdmin, (req, res) => {
   campaigns[String(mediaId).trim()] = {
     title: String(title || "").trim(),
     keyword: String(keyword).trim().toLowerCase(),
-    publicReply: String(publicReply || DEFAULT_PUBLIC_REPLY),
+
+    publicReply: String(publicReply || DEFAULT_PUBLIC_REPLY).trim(),
+    publicReply1: String(publicReply1 || "").trim(),
+    publicReply2: String(publicReply2 || "").trim(),
+    publicReply3: String(publicReply3 || "").trim(),
+
     youtubeUrl: String(youtubeUrl || "").trim(),
-    dmText: String(dmText)
+    dmText: String(dmText),
+
+    thumbnailUrl: String(thumbnailUrl || "").trim(),
+    mediaUrl: String(mediaUrl || "").trim(),
+    permalink: String(permalink || "").trim()
   };
 
   saveCampaigns(campaigns);
@@ -540,7 +577,8 @@ app.get("/api/media", requireAdmin, async (req, res) => {
     const after = req.query.after || undefined;
 
     const data = await graphGet(`${IG_USER_ID}/media`, {
-      fields: "id,caption,permalink,timestamp,media_type,media_product_type",
+      fields:
+        "id,caption,permalink,timestamp,media_type,media_product_type,media_url,thumbnail_url",
       limit,
       after
     });
